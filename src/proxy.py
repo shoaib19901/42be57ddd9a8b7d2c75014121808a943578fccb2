@@ -32,9 +32,20 @@ class ProxyServer:
             if not request:
                 return
 
-            first_line = request.split(b'\n')[0]
-            url = first_line.split(b' ')[1]
-            method = first_line.split(b' ')[0]
+            lines = request.split(b'\n')
+            if not lines:
+                client_socket.close()
+                return
+
+            first_line = lines[0]
+            parts = first_line.split(b' ')
+            if len(parts) < 2:
+                print(f"[!] Malformed request line: {first_line}")
+                client_socket.close()
+                return
+
+            method = parts[0]
+            url = parts[1]
 
             if method == b'CONNECT':
                 self.handle_https(client_socket, request, url)
@@ -49,11 +60,26 @@ class ProxyServer:
         try:
             host_port = url.decode('utf-8')
             if ':' in host_port:
-                host, port = host_port.split(':')
-                port = int(port)
+                parts = host_port.rsplit(':', 1)
+                if len(parts) == 2:
+                    host, port = parts
+                    try:
+                        port = int(port)
+                    except ValueError:
+                        print(f"[!] Invalid port in HTTPS request: {port}")
+                        client_socket.close()
+                        return
+                else:
+                    host = parts[0]
+                    port = 443
             else:
                 host = host_port
                 port = 443
+
+            if not host:
+                print(f"[!] Empty host in HTTPS request: {host_port}")
+                client_socket.close()
+                return
 
             remote_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             remote_socket.connect((host, port))
