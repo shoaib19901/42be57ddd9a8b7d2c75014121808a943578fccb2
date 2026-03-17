@@ -27,14 +27,15 @@ class TestProxyServer(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         # Start mock server in a separate thread
-        cls.server_port = 9999
+        cls.server_port = 10001
+        socketserver.TCPServer.allow_reuse_address = True
         cls.httpd = socketserver.TCPServer(("127.0.0.1", cls.server_port), MockHandler)
         cls.server_thread = threading.Thread(target=cls.httpd.serve_forever)
         cls.server_thread.daemon = True
         cls.server_thread.start()
 
         # Start proxy in a separate thread
-        cls.proxy_port = 8899
+        cls.proxy_port = 8901
         cls.proxy = ProxyServer(port=cls.proxy_port)
         cls.proxy_thread = threading.Thread(target=cls.proxy.start)
         cls.proxy_thread.daemon = True

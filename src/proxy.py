@@ -32,9 +32,10 @@ class ProxyServer:
             if not request:
                 return
 
-            first_line = request.split(b'\n')[0]
-            url = first_line.split(b' ')[1]
-            method = first_line.split(b' ')[0]
+            first_line = request.split(b'\n', 1)[0]
+            parts = first_line.split(b' ', 2)
+            method = parts[0]
+            url = parts[1]
 
             if method == b'CONNECT':
                 self.handle_https(client_socket, request, url)
