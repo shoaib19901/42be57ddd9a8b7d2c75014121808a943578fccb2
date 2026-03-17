@@ -61,5 +61,16 @@ class TestProxyServer(unittest.TestCase):
         except Exception as e:
             self.fail(f"HTTP Proxy test failed: {e}")
 
+    def test_unparseable_hostname(self):
+        # Sending a request with a relative path instead of an absolute URL
+        # This should cause urlparse to not find a hostname
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(2)
+        s.connect(('127.0.0.1', self.proxy_port))
+        s.send(b"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n")
+        data = s.recv(4096)
+        self.assertEqual(data, b"", "Proxy should close the connection when hostname cannot be parsed")
+        s.close()
+
 if __name__ == '__main__':
     unittest.main()
