@@ -110,8 +110,10 @@ class ProxyServer:
                     if not data:
                         break
                     client.send(data)
+        except (ConnectionResetError, BrokenPipeError, socket.error):
+            pass  # Connection closed
         except Exception as e:
-            pass # Connection closed
+            print(f"[!] Relay error: {e}")
         finally:
             client.close()
             remote.close()
