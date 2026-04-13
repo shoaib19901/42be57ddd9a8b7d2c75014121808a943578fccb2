@@ -1,7 +1,6 @@
 import unittest
 import threading
 import time
-import socket
 import urllib.request
 import sys
 import os
