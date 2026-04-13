@@ -18,7 +18,7 @@ To start the proxy server, run:
 python3 src/proxy.py
 ```
 
-By default, the proxy listens on `0.0.0.0:8888`.
+By default, the proxy listens on `127.0.0.1:8888`.
 
 ### Configuring Your Browser/System
 
