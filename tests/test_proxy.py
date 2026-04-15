@@ -26,6 +26,7 @@ class MockHandler(http.server.BaseHTTPRequestHandler):
 class TestProxyServer(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        os.environ['PROXY_ALLOW_INTERNAL'] = 'true'
         # Start mock server in a separate thread
         cls.server_port = 9999
         cls.httpd = socketserver.TCPServer(("127.0.0.1", cls.server_port), MockHandler)

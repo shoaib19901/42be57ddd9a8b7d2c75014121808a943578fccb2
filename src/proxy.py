@@ -1,6 +1,8 @@
 import socket
 import threading
 import select
+import ipaddress
+import os
 from urllib.parse import urlparse
 
 class ProxyServer:
@@ -26,6 +28,36 @@ class ProxyServer:
         finally:
             self.server_socket.close()
 
+    def get_safe_ip(self, host, family=socket.AF_INET):
+        if os.environ.get('PROXY_ALLOW_INTERNAL') == 'true':
+            try:
+                ip_info = socket.getaddrinfo(host, None, family=family)
+                if ip_info:
+                    return ip_info[0][4][0]
+            except Exception:
+                pass
+            return None
+
+        try:
+            # Resolve the hostname to all its IP addresses for the given family
+            ip_info = socket.getaddrinfo(host, None, family=family)
+            if not ip_info:
+                return None
+
+            # To prevent DNS rebinding, we must validate all resolved IPs
+            # and then use one of the validated IPs for the connection.
+            for item in ip_info:
+                ip_str = item[4][0]
+                ip = ipaddress.ip_address(ip_str)
+                if ip.is_loopback or ip.is_private or ip.is_link_local:
+                    return None
+
+            # If all resolved IPs are safe, return the first one
+            return ip_info[0][4][0]
+        except Exception as e:
+            print(f"[!] Host validation error for {host}: {e}")
+            return None
+
     def handle_client(self, client_socket):
         try:
             request = client_socket.recv(4096)
@@ -46,26 +78,53 @@ class ProxyServer:
             client_socket.close()
 
     def handle_https(self, client_socket, request, url):
+        remote_socket = None
         try:
             host_port = url.decode('utf-8')
-            if ':' in host_port:
+            # Handle IPv6 addresses in CONNECT requests [2001:db8::1]:443
+            if host_port.startswith('['):
+                end_bracket = host_port.find(']')
+                if end_bracket != -1:
+                    host = host_port[1:end_bracket]
+                    remaining = host_port[end_bracket+1:]
+                    if remaining.startswith(':'):
+                        port = int(remaining[1:])
+                    else:
+                        port = 443
+                    family = socket.AF_INET6
+                else:
+                    # Malformed IPv6
+                    client_socket.close()
+                    return
+            elif ':' in host_port:
                 host, port = host_port.split(':')
                 port = int(port)
+                family = socket.AF_INET
             else:
                 host = host_port
                 port = 443
+                family = socket.AF_INET
 
-            remote_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            remote_socket.connect((host, port))
+            safe_ip = self.get_safe_ip(host, family=family)
+            if not safe_ip:
+                print(f"[!] Blocked unsafe or unresolvable HTTPS connection to: {host}")
+                client_socket.close()
+                return
+
+            remote_socket = socket.socket(family, socket.SOCK_STREAM)
+            remote_socket.connect((safe_ip, port))
 
             client_socket.send(b"HTTP/1.1 200 Connection Established\r\n\r\n")
 
             self.relay_data(client_socket, remote_socket)
         except Exception as e:
             print(f"[!] HTTPS Error: {e}")
+            if remote_socket:
+                remote_socket.close()
             client_socket.close()
 
     def handle_http(self, client_socket, request, url):
+        remote_socket = None
         try:
             url_str = url.decode('utf-8')
             parsed = urlparse(url_str)
@@ -81,8 +140,20 @@ class ProxyServer:
                     port = 80
 
             if hostname:
-                remote_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                remote_socket.connect((hostname, port))
+                # HTTP often uses IPv4, but let's try to be flexible if the hostname is an IPv6 literal
+                family = socket.AF_INET
+                if hostname.startswith('[') and hostname.endswith(']'):
+                    hostname = hostname[1:-1]
+                    family = socket.AF_INET6
+
+                safe_ip = self.get_safe_ip(hostname, family=family)
+                if not safe_ip:
+                    print(f"[!] Blocked unsafe or unresolvable HTTP connection to: {hostname}")
+                    client_socket.close()
+                    return
+
+                remote_socket = socket.socket(family, socket.SOCK_STREAM)
+                remote_socket.connect((safe_ip, port))
                 remote_socket.send(request)
                 self.relay_data(client_socket, remote_socket)
             else:
@@ -91,6 +162,8 @@ class ProxyServer:
 
         except Exception as e:
             print(f"[!] HTTP Error: {e}")
+            if remote_socket:
+                remote_socket.close()
             client_socket.close()
 
     def relay_data(self, client, remote):
